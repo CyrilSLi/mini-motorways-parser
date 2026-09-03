@@ -1,0 +1,4 @@
+.env
+*.exe
+type_ids.txt
+.dev/

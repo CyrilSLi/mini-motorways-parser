@@ -1,0 +1,2 @@
+mcs extract_types.cs
+mono extract_types.exe '/home/[user]/.local/share/Steam/steamapps/common/Mini Motorways/Mini Motorways_Data/Managed/App.dll'
