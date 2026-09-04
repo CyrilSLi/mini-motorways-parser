@@ -1,7 +1,6 @@
 # Built-in modules
-import os
+import json, os
 from datetime import datetime, timezone
-from pydantic import RootModel
 
 # Third-party modules
 from dotenv import load_dotenv
@@ -81,9 +80,9 @@ def read_fix64():
     return int.from_bytes(f.read(8), byteorder="little", signed=True) / (1 << 32)
 
 def read_object():
-    return read_format_hex(4)
-    # object_ref = read_int32()
-    # return # Implement object reading logic based on the object reference and type information
+    return {
+        "$ref": f"#/{read_int32()}"
+    }
 
 def read_vector2fixed():
     return (read_fix64(), read_fix64())
@@ -108,6 +107,19 @@ def read_array(read_element):
     if array_length == 0: # Different from read_list
         return []
     return [read_element() for _ in range(array_length)]
+
+def read_dict(read_key, read_value):
+    dict_length = read_int32()
+    if dict_length == 0:
+        return {}
+    return {read_key(): read_value() for _ in range(dict_length)}
+
+
+
+# Readers for specific data structures
+
+
+
 
 def read_corneradjacencyreference():
     return (read_int32(), read_int32(), tile_direction_enum[read_int32()])
@@ -145,12 +157,6 @@ def read_tiledirectionbitfield():
         if bitfield & (1 << i):
             directions.append(tile_direction_enum[i])
     return directions
-
-def read_dict(read_key, read_value):
-    dict_length = read_int32()
-    if dict_length == 0:
-        return {}
-    return {read_key(): read_value() for _ in range(dict_length)}
 
 def read_upgradepackagedefinition():
     upd = {
@@ -274,9 +280,10 @@ def read_citymodel():
     return cm
 
 def read_pseudorandomgenerator():
-    seed = read_format_hex(16)
-    print(f"Pseudorandom Generator Seed: {seed}")
-    # return seed
+    prg = {
+        "seed": read_format_hex(16)
+    }
+    return prg
 
 def read_passagemodel():
     pm = {
@@ -598,9 +605,6 @@ def read_tilematrixint():
 
 
 
-
-
-# f = open(glob.glob("gameJournal_*.dat")[0], "rb")
 f = open(os.getenv("GAME_JOURNAL_PATH"), "rb")
 
 with open("type_ids.txt", "r") as f_types:
@@ -673,10 +677,10 @@ if True: # Types
         type_id = read_int32()
         type_serializer_hash = read_format_hex(4)
         object_count = read_int32()
-        if type_serializer_hash == "01 00 00 00":
+        if type_serializer_hash == "01 00 00 00": # Skip types with serializer hash 01 00 00 00 (likely empty or placeholder types)
             print(f"Skipping Type {type_ids.get(type_id, type_id)}")
-            continue # Skip types with serializer hash 01 00 00 00 (likely empty or placeholder types)
-        print(f"Type {i:<5}ID: {type_ids.get(type_id, type_id)}, Serializer Hash: {type_serializer_hash}, Object Count: {object_count}")
+        else:
+            print(f"Type {i:<5}ID: {type_ids.get(type_id, type_id)}, Serializer Hash: {type_serializer_hash}, Object Count: {object_count}")
         type_information[type_ids.get(type_id, type_id)] = {
             "serializer_hash": type_serializer_hash,
             "object_count": object_count
@@ -724,25 +728,43 @@ models = {
     "VehicleDispatchRecord": read_vehicledispatchrecord,
 }
 
-# print(type_information)
+game_data = []
+object_id = 0
 
-game_data = {}
 for model in type_information:
-    if model not in models:
-        print(f"Warning: No reader function defined for {model}")
     for i in range(type_information[model]["object_count"]):
-        game_data.setdefault(model, []).append(models[model]())
+        object_id += 1
+        if type_information[model]["serializer_hash"] == "01 00 00 00":
+            continue
+        elif model not in models:
+            print(f"Warning: No reader function defined for {model}")
+
+        game_data.append({
+            "_id": object_id,
+            "_type": model,
+            **models[model]()
+        })
     print(f.tell(), model)
 assert f.read(1) == b"", "File not fully read"
 
 
 
+def stringify_keys(obj):
+    if isinstance(obj, dict):
+        return {json.dumps(k) if isinstance(k, tuple) else k: stringify_keys(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [stringify_keys(i) for i in obj]
+    elif isinstance(obj, datetime):
+        return obj.isoformat()
+    else:
+        return obj
+
 with open(".dev/game_data.json", "w") as f_out:
-    f_out.write(RootModel(game_data).model_dump_json(indent=4))
+    json.dump({i.pop("_id"): i for i in stringify_keys(game_data)}, f_out, indent=4)
 print("Game data written to .dev/game_data.json")
 
 
-for j, i in enumerate(game_data["Motorways.TileMatrixInt"]):
+""" for j, i in enumerate(game_data["Motorways.TileMatrixInt"]):
     with open(f".dev/tm{j}.txt", "w") as f_out:
         for row in i["matrix"]:
-            f_out.write("".join(f"{x:<12}" for x in row) + "\n")
+            f_out.write("".join(f"{x:<12}" for x in row) + "\n") """
