@@ -728,7 +728,12 @@ models = {
     "VehicleDispatchRecord": read_vehicledispatchrecord,
 }
 
-game_data = []
+game_data = [
+    {
+        "_id": 0,
+        "_type": "_null"
+    }
+]
 object_id = 0
 
 for model in type_information:
