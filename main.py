@@ -1,5 +1,5 @@
 # Built-in modules
-import json, os
+import json, os, struct
 from datetime import datetime, timezone
 
 # Third-party modules
@@ -25,6 +25,11 @@ carpark_preference_enum = ["NoPreference", "Solo", "ForceDouble", "Double", "Joi
 grouping_style_enum = ["Normal", "Near", "Far", "Circle"]
 carpark_entrance_enum = ["TopLeft", "BottomRight", "TopLeftAndBottomRight"]
 demand_generation_style_enum = ["Timer", "PermanentBalanced"]
+tutorial_type_enum = ["None", "Mobile", "Desktop", "TV"]
+tutorial_marker_enum = ["InitialMarker,", "InputControlsTaught,", "BasicsLearnt,", "DemandCollectedFromNewHouseColor,", "BeganBridgeStage,", "BeganTrafficLightStage,", "BeganRoundaboutStage,", "BeganMotorwayStage,", "BeganBigPinStage,", "BeganUpgradeChoiceStage,", "BigPinsAllowed"]
+tutorial_identifier_enum = ["None,", "FirstHouse,", "FirstDestination,", "SecondColorHouse,", "SecondColorDestination,", "AwkwardDrivewayHouse,", "LastHouseBeforeBridgeUpgrade,", "HouseAcrossRiver,", "SecondHouse,", "DiagonalHouse,", "ThirdColorDestination,", "SetupTrafficLight_LastHouse,", "HouseBeforePanTutorial,", "SetupMotorway_LastHouse,", "SetupRoundabout_LastHouse,", "LastHouseBeforeBigPin,", "BigPinDestination,", "SetupTrafficLight_FirstHouse,", "SetupMotorway_FirstHouse,", "SetupRoundabout_FirstHouse,", "UpgradeMotorway_Destination,", "GameOverDestination,", "SetupTrafficLight_SecondHouse"]
+road_draw_mode_enum = ["Add", "Remove"]
+
 
 
 
@@ -75,6 +80,9 @@ def read_timestamp():
 
 def read_timestamp_seconds():
     return datetime.fromtimestamp(read_int32(), tz=timezone.utc)
+
+def read_float():
+    return struct.unpack("<f", f.read(4))[0]
 
 def read_fix64():
     return int.from_bytes(f.read(8), byteorder="little", signed=True) / (1 << 32)
@@ -228,36 +236,79 @@ def read_passage():
 def read_simulation():
     s = {
         "models": read_dict(lambda: read_format_hex(4), lambda: read_list(read_object)), # Dictionary<Type, IModel>
-        "unknown": read_list(read_object), # TODO: Determine what this field represents
-        "unknown2": read_format_hex(18), # TODO: Determine what this field represents
+        "processes": read_list(read_object),
+        "commands": read_list(read_object), # TODO: define Command
+        "journal": read_object(), # CommandJournal
+        "is_recording_simulation_commands": read_bool(),
+        "clock": read_object(), # Clock
+        "timestamp": read_fix64(),
+        "is_paused": read_bool()
     }
     return s
 
 def read_clock():
     c = {
-        "time": read_fix64(),
+        "frame_count": read_int32(),
+        "time": read_fix64()
     }
     return c
 
 def read_commandjournal():
     cj = {
-        "unknown": read_format_hex(4), # TODO: Determine what this field represents
+        "entries": read_list(read_object), # List of Command TODO: define Command
     }
     return cj
 
 def read_tutorialprogressionprocess():
-    return {}
+    tpp = {
+        "tutorial_type": tutorial_type_enum[read_int32()],
+        # message_data
+        "tutorial_marker": tutorial_marker_enum[read_int32()],
+        "road_count_after_draw_step": read_int32(),
+        "road_count_before_wait_until_delete_mode_enabled": read_int32(),
+        "concrete_count_at_start_of_tutorial": read_int32(),
+        "draw_road_hint_animation_timer": read_fix64(),
+        "current_step_index": read_int32(),
+        "had_input": read_bool(),
+        # indicator_animation_view
+        "is_in_tutorial": read_bool(),
+        "score_to_finish_tutorial": read_int32(),
+        "clock_speed_multiplier": read_fix64(),
+        "is_progressing": read_bool(),
+        # confirmation_popup
+        "has_shown_alternate_draw_mode_toggle_popup": read_bool(),
+        "time_spent_in_step": read_fix64(),
+        "time_spent_not_progressing": read_fix64(),
+        "unscaled_message_timer": read_float(),
+        "current_controller_position": read_vector2int(),
+        "controller_is_drawing_roads": read_bool(),
+        # tutorial_builder
+        "skip_time_for_dismissible_messages": read_bool(),
+        "number_of_vehicles_that_have_left_a_motorway": read_int32(),
+        "vehicles_on_motorway": read_list(read_object), # List of VehicleModel
+        "number_of_vehicles_that_have_left_a_roundabout": read_int32(),
+        "vehicles_on_roundabout": read_list(read_object), # List of VehicleModel
+        "no_demand_limit": read_int32(), # TODO: verify if this `const` type is serialized
+        "demand_limits": read_dict(lambda: tutorial_identifier_enum[read_int32()], read_int32), # Dictionary<TutorialIdentifier, int>
+        "entered_delete_mode": read_bool(),
+        "exited_delete_mode": read_bool(),
+        "road_draw_mode": road_draw_mode_enum[read_int32()],
+        # idle_hint
+        "connect_house_idle_message_has_been_dismissed": read_bool(),
+        "tap_index_timer": read_fix64(),
+        "drag_indicator_timer": read_fix64()
+    }
+    return tpp
 
 def read_dispatchvehiclesprocess():
     dvp = {
-        # "sorted_destinations_with_demand": read_array(read_object) # List of DestinationModel
-        "unknown": read_format_hex(140), # TODO: Determine what this field represents
+        "sorted_destinations_with_demand": read_array(read_object) # List of DestinationModel
     }
     return dvp
 
 def read_generatedemandprocess():
     gdp = {
-        "demand_generation_style": demand_generation_style_enum[read_int(1)],
+        "demand_generation_style": demand_generation_style_enum[read_int32()],
         "allocated_color_groups": read_array(read_bool)
     }
     return gdp
@@ -499,6 +550,17 @@ def read_trafficlightmodel():
     }
     return tlm
 
+def read_roundaboutmodel():
+    rm = {
+        "origin_coordinates": read_vector2int(),
+        "center_tile_model": read_object(), # TileModel
+        "reference_tile": read_object(), # Tile
+        "reference_connection": read_roadtileconnection(),
+        "last_known_state": road_state_dict[read_int32()],
+        "replaced_connections": read_list(read_object), # TODO: Define AdjacentTileConnection
+    }
+    return rm
+
 def read_gamebehaviourmodel():
     gbm = {
         "can_game_over": read_bool(),
@@ -524,7 +586,7 @@ def read_upgradedatabasemodel():
         "num_choices_made": read_int32(),
         "accumulated_upgrade_schedule_delay_time": read_fix64(),
         "upgrade_schedule_passed": read_bool(),
-        #"total_claimed_packages": read_int32(),
+        # "total_claimed_packages": read_int32(),
         # "last_claimed_package_type": upgrade_type_enum[read_int32()],
     }
     for _ in range(3):
@@ -703,6 +765,7 @@ models = {
     "Motorways.Models.PassageModel": read_passagemodel,
     "Motorways.Passage": read_passage,
     "Motorways.Models.TrafficLightModel": read_trafficlightmodel,
+    "Motorways.Models.RoundaboutModel": read_roundaboutmodel,
     "Motorways.Models.RoadChunkModel": read_roadchunkmodel,
     "Motorways.Models.RoadChunkModel+InboundVehicle": read_inboundvehicle,
     "Motorways.Models.LaneModel": read_lanemodel,
@@ -740,9 +803,13 @@ for model in type_information:
     for i in range(type_information[model]["object_count"]):
         object_id += 1
         if type_information[model]["serializer_hash"] == "01 00 00 00":
+            game_data.append({
+                "_id": object_id,
+                "_type": model
+            })
             continue
         elif model not in models:
-            print(f"Warning: No reader function defined for {model}")
+            raise ValueError(f"ERROR: No reader function defined for {model}")
 
         game_data.append({
             "_id": object_id,
