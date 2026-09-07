@@ -387,10 +387,10 @@ def read_lanemodel():
         "is_carpark_lane": read_bool(),
         "has_been_used": read_bool(),
         "bespoke_lane_points": read_list(read_vector2fixed),
-        "unknown": read_format_hex(4),                                   # TODO: Determine what this field represents
+        "tile_definition_index": read_int32(),
         "world_offset": read_vector2fixed(),
         "connection": read_roadtileconnection(),
-        "road_state": road_state_dict[read_int32()],
+        "state": road_state_dict[read_int32()],
         "is_temporary": read_bool(),
         "outbound_lanes": read_list(read_object), # List of LaneModel
         "road_chunk": read_object(), # RoadChunkModel
@@ -583,18 +583,20 @@ def read_upgradedatabasemodel():
         "claimed_package_counts": read_array(read_int32),
         "consecutive_weeks_since_upgrade_last_presented": read_array(read_int32),
         "pending_upgrade_choices": read_list(read_upgradechoice),
-        "num_choices_made": read_int32(),
+        # "num_choices_made": read_int32(), TODO: determine which field is not serialized
         "accumulated_upgrade_schedule_delay_time": read_fix64(),
-        "upgrade_schedule_passed": read_bool(),
-        # "total_claimed_packages": read_int32(),
-        # "last_claimed_package_type": upgrade_type_enum[read_int32()],
+        "upgrade_schedule_paused": read_bool(),
+        "total_claimed_packages": read_int32(),
+        "last_claimed_package_type": upgrade_type_enum[read_int32()],
     }
+
+    read_array(read_int32) # UNKNOWN
+    read_array(read_int32) # UNKNOWN
     for _ in range(3):
-        read_array(read_int32) # UNKNOWN
-    read_int32() # UNKNOWN
-    read_int32() # UNKNOWN
-    for _ in range(3):
-        read_array(read_int32) # UNKNOWN
+        read_int32() # UNKNOWN
+    read_array(read_int32) # UNKNOWN
+    read_array(read_int32) # UNKNOWN
+
     return udm
 
 def read_snapshotmodel():
@@ -661,7 +663,7 @@ def read_tilematrixint():
         matrix.append([read_int32() for _ in range(tmi["width"])])
     tmi["matrix"] = list(reversed(matrix))
 
-    read_int32() # UNKNOWN
+    tmi ["default_value"] = read_int32()
 
     return tmi
 
